@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>수업교체 교사찾기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .spinner { border: 4px solid #e5e7eb; border-top-color: #3b82f6; border-radius: 50%; width: 2.5rem; height: 2.5rem; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* Custom select search dropdown */
+    .teacher-dropdown { max-height: 240px; overflow-y: auto; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-blue-600 text-white shadow-lg">
+    <div class="max-w-4xl mx-auto px-4 py-5">
+      <h1 class="text-2xl font-bold tracking-tight">수업교체 교사찾기</h1>
+      <p class="text-blue-100 text-sm mt-1">쌍방 공강 기반 수업 맞교환 파트너 검색</p>
+    </div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-4 py-8">
+
+    <!-- Status / Loading -->
+    <div id="status-area" class="mb-6">
+      <div id="loading" class="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div class="spinner"></div>
+        <span class="text-blue-700 font-medium">시간표 데이터를 불러오는 중...</span>
+      </div>
+      <div id="error-msg" class="hidden bg-red-50 border border-red-300 rounded-lg p-4 text-red-700"></div>
+      <div id="success-msg" class="hidden bg-green-50 border border-green-200 rounded-lg p-4 text-green-700"></div>
+    </div>
+
+    <!-- Input Form -->
+    <section id="form-section" class="hidden bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">내 조건 입력</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+        <!-- Teacher Select with Search -->
+        <div class="relative">
+          <label class="block text-sm font-medium text-gray-600 mb-1">내 이름</label>
+          <input
+            id="teacher-search"
+            type="text"
+            placeholder="교사명 검색..."
+            autocomplete="off"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none"
+          />
+          <input id="teacher-selected" type="hidden" value="" />
+          <div id="teacher-dropdown" class="hidden absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg teacher-dropdown"></div>
+        </div>
+
+        <!-- Day Select -->
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1">결강(교체)할 요일</label>
+          <select id="day-select" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none">
+            <option value="">요일 선택</option>
+            <option value="월">월</option>
+            <option value="화">화</option>
+            <option value="수">수</option>
+            <option value="목">목</option>
+            <option value="금">금</option>
+          </select>
+        </div>
+
+        <!-- Period Select -->
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1">결강(교체)할 교시</label>
+          <select id="period-select" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none">
+            <option value="">교시 선택</option>
+            <option value="1">1교시</option>
+            <option value="2">2교시</option>
+            <option value="3">3교시</option>
+            <option value="4">4교시</option>
+            <option value="5">5교시</option>
+            <option value="6">6교시</option>
+            <option value="7">7교시</option>
+          </select>
+        </div>
+      </div>
+
+      <button
+        id="find-btn"
+        class="mt-5 w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-2.5 rounded-lg transition-colors focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+      >
+        교체 가능한 교사 찾기
+      </button>
+    </section>
+
+    <!-- Results -->
+    <section id="result-section" class="hidden">
+      <div id="my-class-info" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+        <p class="text-sm text-blue-600 font-medium">내 결강 수업</p>
+        <p id="my-class-detail" class="text-blue-800 font-semibold mt-1"></p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-gray-800">검색 결과</h2>
+          <span id="result-count" class="text-sm text-gray-500"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-600">
+              <tr>
+                <th class="px-4 py-3 text-left font-semibold">교사명</th>
+                <th class="px-4 py-3 text-left font-semibold">내가 대신 들어갈 요일</th>
+                <th class="px-4 py-3 text-left font-semibold">교시</th>
+                <th class="px-4 py-3 text-left font-semibold">수업 내용 (학년반/과목)</th>
+              </tr>
+            </thead>
+            <tbody id="result-body" class="divide-y divide-gray-100"></tbody>
+          </table>
+        </div>
+        <div id="no-result" class="hidden px-6 py-12 text-center text-gray-400">
+          조건에 맞는 교체 가능한 교사가 없습니다.
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="text-center text-xs text-gray-400 py-6">수업교체 교사찾기 &copy; 2026</footer>
+
+<script>
+// ─────────────────────────────────────────────
+// 설정
+// ─────────────────────────────────────────────
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8aP-HwTvlQx48_OuWyVysw-RT1qZlmSqv1DH6rpaJyVr4vtgR-xf5J5d6q1sSmEENrvToqxfrDIzq/pub?output=csv';
+
+// ─────────────────────────────────────────────
+// 전역 상태
+// ─────────────────────────────────────────────
+let teachers = [];       // [{ name, displayName, slots: { '월': ['', '수학2-3', ...], ... } }]
+let teacherNames = [];   // 표시용 이름 목록
+const DAYS = ['월', '화', '수', '목', '금'];
+
+// ─────────────────────────────────────────────
+// DOM 참조
+// ─────────────────────────────────────────────
+const $loading     = document.getElementById('loading');
+const $errorMsg    = document.getElementById('error-msg');
+const $successMsg  = document.getElementById('success-msg');
+const $formSection = document.getElementById('form-section');
+const $resultSection = document.getElementById('result-section');
+const $resultBody  = document.getElementById('result-body');
+const $resultCount = document.getElementById('result-count');
+const $noResult    = document.getElementById('no-result');
+const $findBtn     = document.getElementById('find-btn');
+const $teacherSearch   = document.getElementById('teacher-search');
+const $teacherSelected = document.getElementById('teacher-selected');
+const $teacherDropdown = document.getElementById('teacher-dropdown');
+const $daySelect    = document.getElementById('day-select');
+const $periodSelect = document.getElementById('period-select');
+
+// ─────────────────────────────────────────────
+// 1. CSV 로드 & 파싱
+//    직접 fetch 시도 → 실패 시 CORS 프록시 경유
+// ─────────────────────────────────────────────
+async function loadData() {
+  let csvText = null;
+
+  // 1차: 직접 요청
+  try {
+    const res = await fetch(CSV_URL);
+    if (res.ok) csvText = await res.text();
+  } catch (e) { /* CORS 차단 — 프록시로 재시도 */ }
+
+  // 2차: CORS 프록시 경유
+  if (!csvText) {
+    try {
+      const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(CSV_URL);
+      const res = await fetch(proxyUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      csvText = await res.text();
+    } catch (e) {
+      showError('데이터를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.');
+      return;
+    }
+  }
+
+  const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: false });
+  parseTimeTable(parsed.data);
+}
+
+// ─────────────────────────────────────────────
+// 2. 시간표 파싱 (실제 나이스 시간표 CSV 구조에 맞춤)
+// ─────────────────────────────────────────────
+function parseTimeTable(rows) {
+  // 2-1. 헤더 행에서 요일 시작 열 인덱스 찾기
+  let headerRowIdx = -1;
+  let dayColMap = {};
+
+  for (let r = 0; r < Math.min(rows.length, 10); r++) {
+    const row = rows[r];
+    const found = {};
+    for (let c = 0; c < row.length; c++) {
+      const cell = (row[c] || '').toString().trim();
+      if (DAYS.includes(cell) && !found[cell]) {
+        found[cell] = c;
+      }
+    }
+    if (Object.keys(found).length >= 5) {
+      headerRowIdx = r;
+      dayColMap = found;
+      break;
+    }
+  }
+
+  if (headerRowIdx === -1) {
+    showError('시간표 헤더(월~금)를 찾을 수 없습니다. CSV 구조를 확인해 주세요.');
+    return;
+  }
+
+  // 2-2. 요일 간 간격으로 교시 수 추정 (이 데이터는 12교시)
+  const dayIndices = DAYS.map(d => dayColMap[d]);
+  let periodsPerDay = 12;
+  for (let i = 0; i < dayIndices.length - 1; i++) {
+    const gap = dayIndices[i + 1] - dayIndices[i];
+    if (gap > 0) periodsPerDay = gap;
+  }
+
+  // 2-3. 교사명 열 = 인덱스 1 (B열, "교사성명")
+  const nameCol = 1;
+
+  // 2-4. 교시 번호 행 찾기 (headerRowIdx 다음 행)
+  //      ",,1,2,3,4,5,6,7,8,9,10,11,12,1,2,..." 형태
+  const periodRowIdx = headerRowIdx + 1;
+
+  // 2-5. 교사별 시간표 구축 — 2행 분할 데이터 병합 처리
+  teachers = [];
+  let dataStartRow = periodRowIdx + 1;
+
+  for (let r = dataStartRow; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+
+    const rawName = (row[nameCol] || '').toString().trim();
+
+    // 교사명이 있는 행 = 새 교사 시작
+    if (rawName) {
+      // 이름에서 괄호 안 한글 이름 추출: "tks1015(고정연)" → "고정연"
+      const match = rawName.match(/\(([^)]+)\)/);
+      const displayName = match ? match[1] : rawName;
+
+      const slots = {};
+      for (const day of DAYS) {
+        const startCol = dayColMap[day];
+        slots[day] = [];
+        for (let p = 0; p < periodsPerDay; p++) {
+          const colIdx = startCol + p;
+          const val = colIdx < row.length ? (row[colIdx] || '').toString().trim() : '';
+          slots[day].push(val);
+        }
+      }
+      teachers.push({ name: rawName, displayName, slots });
+    } else {
+      // 교사명이 비어있는 행 = 이전 교사의 연속 행 (2행 분할 데이터)
+      // 순번 열(A열)도 비어있으면 연속 행으로 판단
+      const seqNum = (row[0] || '').toString().trim();
+      if (!seqNum && teachers.length > 0) {
+        const lastTeacher = teachers[teachers.length - 1];
+        for (const day of DAYS) {
+          const startCol = dayColMap[day];
+          for (let p = 0; p < periodsPerDay; p++) {
+            const colIdx = startCol + p;
+            const val = colIdx < row.length ? (row[colIdx] || '').toString().trim() : '';
+            if (val) {
+              // 기존 값에 이어붙이기 (잘린 텍스트 병합)
+              lastTeacher.slots[day][p] = lastTeacher.slots[day][p]
+                ? lastTeacher.slots[day][p] + val
+                : val;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  teacherNames = teachers.map(t => t.displayName);
+
+  if (teachers.length === 0) {
+    showError('교사 데이터가 없습니다. CSV를 확인해 주세요.');
+    return;
+  }
+
+  // 성공
+  $loading.classList.add('hidden');
+  showSuccess(`${teachers.length}명의 교사 시간표를 불러왔습니다.`);
+  $formSection.classList.remove('hidden');
+  initTeacherSearch();
+}
+
+// ─────────────────────────────────────────────
+// 3. 교사 검색 드롭다운
+// ─────────────────────────────────────────────
+function initTeacherSearch() {
+  renderDropdown(teacherNames);
+
+  $teacherSearch.addEventListener('focus', () => {
+    renderDropdown(filterTeachers($teacherSearch.value));
+    $teacherDropdown.classList.remove('hidden');
+  });
+
+  $teacherSearch.addEventListener('input', () => {
+    $teacherSelected.value = '';
+    renderDropdown(filterTeachers($teacherSearch.value));
+    $teacherDropdown.classList.remove('hidden');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!$teacherSearch.contains(e.target) && !$teacherDropdown.contains(e.target)) {
+      $teacherDropdown.classList.add('hidden');
+    }
+  });
+}
+
+function filterTeachers(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return teacherNames;
+  return teacherNames.filter(n => n.toLowerCase().includes(q));
+}
+
+function renderDropdown(list) {
+  if (list.length === 0) {
+    $teacherDropdown.innerHTML = '<div class="px-3 py-2 text-gray-400 text-sm">결과 없음</div>';
+    return;
+  }
+  $teacherDropdown.innerHTML = list.map(name =>
+    `<div class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-gray-700 text-sm" data-name="${escapeHtml(name)}">${escapeHtml(name)}</div>`
+  ).join('');
+  $teacherDropdown.querySelectorAll('[data-name]').forEach(el => {
+    el.addEventListener('click', () => {
+      $teacherSearch.value = el.dataset.name;
+      $teacherSelected.value = el.dataset.name;
+      $teacherDropdown.classList.add('hidden');
+    });
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ─────────────────────────────────────────────
+// 4. 핵심 로직: 쌍방 공강 Swap 검색
+// ─────────────────────────────────────────────
+// "1학년 경영정보과/공통국어1(2)" → { grade: "1", ban: "2" }
+function getGradeBan(classInfo) {
+  const gradeMatch = classInfo.match(/^(\d)학년/);
+  const banMatch = classInfo.match(/\((\d+)\)\s*$/);
+  return {
+    grade: gradeMatch ? gradeMatch[1] : null,
+    ban: banMatch ? banMatch[1] : null
+  };
+}
+
+// "1학년 관광비즈니스과/통합과학1(5)" → "1-5(통합과학1)"
+// "3학년 조리과/* 양식 스톡조리(4)" → "3-4(양식 스톡조리)"
+function formatClassInfo(classInfo) {
+  const gb = getGradeBan(classInfo);
+  if (!gb.grade || !gb.ban) return classInfo;
+  // 과목명 추출: "/" 뒤부터 마지막 "(숫자)" 앞까지
+  const subjectMatch = classInfo.match(/\/\*?\s*(.+?)\s*\(\d+\)\s*$/);
+  const subject = subjectMatch ? subjectMatch[1] : '';
+  return `${gb.grade}-${gb.ban}(${subject})`;
+}
+
+function findSwaps(myDisplayName, absentDay, absentPeriod) {
+  const me = teachers.find(t => t.displayName === myDisplayName);
+  if (!me) return [];
+
+  const periodIdx = absentPeriod - 1; // 0-based
+  const results = [];
+
+  // 내 결강 수업의 학년+반 추출
+  const myClassInfo = me.slots[absentDay]?.[periodIdx] ?? '';
+  const myGB = getGradeBan(myClassInfo);
+
+  // 내 결강 수업 정보 화면에 표시
+  const $myClassInfo = document.getElementById('my-class-info');
+  const $myClassDetail = document.getElementById('my-class-detail');
+  if (myClassInfo) {
+    $myClassDetail.textContent = `${absentDay}요일 ${absentPeriod}교시 — ${formatClassInfo(myClassInfo)}`;
+    $myClassInfo.classList.remove('hidden');
+  } else {
+    $myClassInfo.classList.add('hidden');
+  }
+
+  for (const candidate of teachers) {
+    if (candidate.displayName === myDisplayName) continue;
+
+    // 조건 1: 후보 교사가 [내 결강 요일/교시]에 공강인가?
+    const candidateSlot = candidate.slots[absentDay]?.[periodIdx] ?? '';
+    if (candidateSlot !== '') continue;
+
+    // 조건 2: 후보 교사의 수업 시간 중, 내가 공강인 시간 찾기
+    for (const day of DAYS) {
+      const daySlots = candidate.slots[day];
+      if (!daySlots) continue;
+      for (let p = 0; p < daySlots.length; p++) {
+        // 월요일 1교시 자율시간, 수요일 5·6교시 — 교체 불가
+        if (day === '월' && p === 0) continue;
+        if (day === '수' && (p === 4 || p === 5)) continue;
+
+        const classInfo = daySlots[p];
+        if (classInfo === '') continue;
+
+        // 같은 학년+반 수업만 교체 가능
+        const cGB = getGradeBan(classInfo);
+        if (myGB.grade && cGB.grade && myGB.grade !== cGB.grade) continue;
+        if (myGB.ban && cGB.ban && myGB.ban !== cGB.ban) continue;
+
+        const mySlot = me.slots[day]?.[p] ?? '';
+        if (mySlot === '') {
+          results.push({
+            candidateName: candidate.displayName,
+            swapDay: day,
+            swapPeriod: p + 1,
+            classInfo: formatClassInfo(classInfo)
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+// ─────────────────────────────────────────────
+// 5. 결과 렌더링
+// ─────────────────────────────────────────────
+function renderResults(results) {
+  $resultSection.classList.remove('hidden');
+  $resultBody.innerHTML = '';
+
+  if (results.length === 0) {
+    $noResult.classList.remove('hidden');
+    $resultCount.textContent = '';
+    return;
+  }
+
+  $noResult.classList.add('hidden');
+  $resultCount.textContent = `총 ${results.length}건`;
+
+  for (const r of results) {
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-gray-50';
+    tr.innerHTML = `
+      <td class="px-4 py-3 font-medium text-gray-800">${escapeHtml(r.candidateName)}</td>
+      <td class="px-4 py-3 text-gray-600">${r.swapDay}</td>
+      <td class="px-4 py-3 text-gray-600">${r.swapPeriod}교시</td>
+      <td class="px-4 py-3 text-gray-600">${escapeHtml(r.classInfo)}</td>
+    `;
+    $resultBody.appendChild(tr);
+  }
+}
+
+// ─────────────────────────────────────────────
+// 6. 이벤트 바인딩
+// ─────────────────────────────────────────────
+$findBtn.addEventListener('click', () => {
+  const myName = $teacherSelected.value;
+  const day = $daySelect.value;
+  const period = parseInt($periodSelect.value, 10);
+
+  if (!myName) { alert('교사를 선택해 주세요.'); return; }
+  if (!day) { alert('요일을 선택해 주세요.'); return; }
+  if (!period) { alert('교시를 선택해 주세요.'); return; }
+
+  // 선택한 시간이 공강인지 확인
+  const me = teachers.find(t => t.displayName === myName);
+  if (me) {
+    const slot = me.slots[day]?.[period - 1] ?? '';
+    if (slot === '') {
+      alert(`${day}요일 ${period}교시는 공강이라 교체할 수 없습니다.`);
+      return;
+    }
+  }
+
+  const results = findSwaps(myName, day, period);
+  renderResults(results);
+});
+
+// ─────────────────────────────────────────────
+// 유틸리티
+// ─────────────────────────────────────────────
+function showError(msg) {
+  $loading.classList.add('hidden');
+  $errorMsg.textContent = msg;
+  $errorMsg.classList.remove('hidden');
+}
+
+function showSuccess(msg) {
+  $successMsg.textContent = msg;
+  $successMsg.classList.remove('hidden');
+  setTimeout(() => $successMsg.classList.add('hidden'), 4000);
+}
+
+// ─────────────────────────────────────────────
+// 초기화
+// ─────────────────────────────────────────────
+loadData();
+</script>
+
+</body>
+</html>
